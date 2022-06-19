@@ -1,0 +1,202 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  An application configured with AWS Cloudformation , run at ec2 Amazon Linux machines and amazon RDS service in Auto scaling group and gained public access by LoadBalancer
+
+Parameters:
+  VPC:
+    Description: Select your VPC
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-0bfa56c1588d6d12c
+
+  Subnet:
+    Description: Select all subnets in VPC
+    Type: List<AWS::EC2::Subnet::Id>  
+
+  InstanceType:
+    Description: Select your instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+     - t2.micro
+     - t2.nano
+     - t3.micro
+     - t3.nano
+  PemKey:
+    Description: Please Select A pem file.
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: phonebook-key
+
+Mappings:
+  RegionImageMap:
+    us-east-1:
+      AMI: ami-0022f774911c1d690
+    us-east-2:
+      AMI: ami-0233c2d874b811deb
+    us-west-1:
+      AMI: ami-0ed05376b59b90e46
+    us-west-2:
+      AMI: ami-0dc8f589abe99f538
+    eu-west-1:
+      AMI: ami-058b1b7fe545997ae
+  
+Resources:
+  WEBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SSH and HTTP access for servers ASG. # Required
+      GroupName: "FLASK-PhoneBook"
+      SecurityGroupIngress:
+        - Description: "ssh access"
+          IpProtocol: tcp
+          FromPort: 22 
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - Description: "http access"
+          IpProtocol: tcp
+          FromPort: 80 
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: FLASK-PhoneBook
+        - Key: Project
+          Value: PhoneBook
+    
+      VpcId: !Ref VPC
+
+  ALBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Web Access for load balancer" # Required
+      GroupName: "ALB-PhoneBook"
+      SecurityGroupIngress:
+        - Description: "http access"
+          IpProtocol: tcp
+          FromPort: 80 
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: FLASK-PhoneBook
+        - Key: Project
+          Value: PhoneBook
+      VpcId: !Ref VPC
+  DBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "DB access from webserver" # Required
+      GroupName: "RDS-PhoneBook"
+      SecurityGroupIngress:
+        - Description: "DB access"
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: FLASK-PhoneBook
+        - Key: Project
+          Value: PhoneBook
+      VpcId: !Ref VPC
+  FLASKLT:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !FindInMap 
+          - RegionImageMap
+          - !Ref AWS::Region
+          - AMI
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref PemKey
+        SecurityGroupIds:
+          - !GetAtt WEBSG.GroupId
+        IamInstanceProfile: 
+            Arn: arn:aws:iam::417059802877:instance-profile/rdsaccessforcfn
+            
+        UserData: !Base64 |
+          #!/bin/bash 
+          sudo yum update -y 
+          #sudo yum install python3 -y 
+          #sudo yum install python3-pip -y 
+          #sudo pip install flask  
+          #sudo pip install pip install Flask-Mysql
+          sudo yum install git -y 
+          cd /home/ec2-user
+          git clone https://github.com/MCANMCAN/Phonebook-Application.git
+  
+          #sudo python3 ./Phonebook-Application/phonebook-app.py
+      LaunchTemplateName: "PhoneBook-LT"
+  PBALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: "PhonebookALB"
+      SecurityGroups: 
+        - !GetAtt ALBSG.GroupId
+      Subnets: !Ref Subnet
+      Tags:
+        - Key: Name
+          Value: FLASK-PhoneBook
+        - Key: Project
+          Value: PhoneBook
+      Type: application
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions: # Required
+        - Type: forward
+          TargetGroupArn: !Ref PBTG
+      LoadBalancerArn: !Ref PBALB # Required
+      Port: 80
+      Protocol: HTTP
+  PBTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      Name: "PhoneBookTG"
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 5
+      VpcId: !Ref VPC
+  PBASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: "PhoneBookASG"
+      AvailabilityZones: !GetAZs 
+      DesiredCapacity: "2"
+      HealthCheckGracePeriod: 90
+      HealthCheckType: ELB
+      LaunchTemplate:
+        LaunchTemplateId: !Ref FLASKLT
+        Version: "1"
+      MaxSize: "3" # Required
+      MinSize: "1" # Required
+      TargetGroupARNs: 
+        - !Ref PBTG
+#  ReadRDS:
+#    Type: AWS::IAM::InstanceProfile
+#    Properties:
+#      Path: "/"
+#      Roles:
+#        - Ref: S3FullAccess  
+#  RDSREADONLY:
+#    Type: AWS::IAM::Policy
+#    Properties:
+#      PolicyName: AmazonRDSReadOnlyAccess
+#      PolicyDocument:
+#        Statement:
+#          - Effect: Allow
+#            Action:
+#              - rds:Describe*
+#              - rds:ListTagsForResource
+#              - ec2:DescribeAccountAttributes
+#              - ec2:DescribeAvailabilityZones
+#              - ec2:DescribeInternetGateways
+#              - ec2:DescribeSecurityGroups
+#              - ec2:DescribeSubnets
+#              - ec2:DescribeVpcAttribute
+#              - ec2:DescribeVpcs
+#            Resource: "*"
+#Outputs:
