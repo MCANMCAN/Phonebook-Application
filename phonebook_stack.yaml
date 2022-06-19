@@ -81,23 +81,7 @@ Resources:
         - Key: Project
           Value: PhoneBook
       VpcId: !Ref VPC
-  DBSG:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: "DB access from webserver" # Required
-      GroupName: "RDS-PhoneBook"
-      SecurityGroupIngress:
-        - Description: "DB access"
-          IpProtocol: tcp
-          FromPort: 3306
-          ToPort: 3306
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: FLASK-PhoneBook
-        - Key: Project
-          Value: PhoneBook
-      VpcId: !Ref VPC
+  
   FLASKLT:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -107,7 +91,6 @@ Resources:
           - !Ref AWS::Region
           - AMI
         InstanceType: !Ref InstanceType
-        KeyName: !Ref PemKey
         SecurityGroupIds:
           - !GetAtt WEBSG.GroupId
         IamInstanceProfile: 
@@ -116,15 +99,15 @@ Resources:
         UserData: !Base64 |
           #!/bin/bash 
           sudo yum update -y 
-          #sudo yum install python3 -y 
-          #sudo yum install python3-pip -y 
-          #sudo pip install flask  
-          #sudo pip install pip install Flask-Mysql
+          sudo yum install python3 -y 
+          sudo yum install python3-pip -y 
+          sudo pip3 install flask  
+          sudo pip3 install pip install Flask-Mysql
           sudo yum install git -y 
           cd /home/ec2-user
+          aws rds describe-db-instances --query 'DBInstances[].Endpoint[].Address[]' --region us-east-1 | cut -d "[" -f2 | cut -d "]" -f1 | grep .com | cut -d '"' -f2 > dbserver.endpoint
           git clone https://github.com/MCANMCAN/Phonebook-Application.git
-  
-          #sudo python3 ./Phonebook-Application/phonebook-app.py
+          sudo python3 ./Phonebook-Application/phonebook-app.py
       LaunchTemplateName: "PhoneBook-LT"
   PBALB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -165,38 +148,24 @@ Resources:
     Properties:
       AutoScalingGroupName: "PhoneBookASG"
       AvailabilityZones: !GetAZs 
-      DesiredCapacity: "2"
+      DesiredCapacity: "1"
       HealthCheckGracePeriod: 90
       HealthCheckType: ELB
       LaunchTemplate:
         LaunchTemplateId: !Ref FLASKLT
         Version: "1"
-      MaxSize: "3" # Required
+      MaxSize: "1" # Required
       MinSize: "1" # Required
       TargetGroupARNs: 
         - !Ref PBTG
-#  ReadRDS:
-#    Type: AWS::IAM::InstanceProfile
-#    Properties:
-#      Path: "/"
-#      Roles:
-#        - Ref: S3FullAccess  
-#  RDSREADONLY:
-#    Type: AWS::IAM::Policy
-#    Properties:
-#      PolicyName: AmazonRDSReadOnlyAccess
-#      PolicyDocument:
-#        Statement:
-#          - Effect: Allow
-#            Action:
-#              - rds:Describe*
-#              - rds:ListTagsForResource
-#              - ec2:DescribeAccountAttributes
-#              - ec2:DescribeAvailabilityZones
-#              - ec2:DescribeInternetGateways
-#              - ec2:DescribeSecurityGroups
-#              - ec2:DescribeSubnets
-#              - ec2:DescribeVpcAttribute
-#              - ec2:DescribeVpcs
-#            Resource: "*"
+  myCPUPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref PBASG  # Required
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 60.0
+
 #Outputs:

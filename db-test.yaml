@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  An application configured with AWS Cloudformation , run at ec2 Amazon Linux machines and amazon RDS service in Auto scaling group and gained public access by LoadBalancer
+
+Parameters:
+  VPC:
+    Description: Select your VPC
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-0bfa56c1588d6d12c
+  Subnet:
+    Description: Select all subnets in VPC
+    Type: List<AWS::EC2::Subnet::Id>  
+  InstanceType:
+    Description: Select your instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+     - t2.micro
+     - t2.nano
+     - t3.micro
+     - t3.nano
+Mappings:
+  RegionImageMap:
+    us-east-1:
+      AMI: ami-0022f774911c1d690
+    us-east-2:
+      AMI: ami-0233c2d874b811deb
+    us-west-1:
+      AMI: ami-0ed05376b59b90e46
+    us-west-2:
+      AMI: ami-0dc8f589abe99f538
+    eu-west-1:
+      AMI: ami-058b1b7fe545997ae
+  
+Resources:
+  PhonebookDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20
+      AllowMajorVersionUpgrade: false
+      BackupRetentionPeriod: 0
+      DBInstanceClass: db.t2.micro # Required
+      DBInstanceIdentifier: PhoneBookRDS
+      DBName: clarusway_phonebook
+      DBSecurityGroups:
+        - !Ref DBSGG
+      DeleteAutomatedBackups: false
+      DeletionProtection: false
+      MasterUserPassword: database123
+      MasterUsername: admin
+      MaxAllocatedStorage: 30
+      MultiAZ: false
+      Port: 3306
+      Engine: MySQL
+      PubliclyAccessible: true
+      StorageEncrypted: false
+  DBSGG:
+    Type: AWS::RDS::DBSecurityGroup
+    Properties:
+      DBSecurityGroupIngress: # Required
+        - EC2SecurityGroupId: !GetAtt DBSG.GroupId
+      GroupDescription: "FOR MAin db" # Required
+
